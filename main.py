@@ -8,9 +8,20 @@ import re
 from io import BytesIO
 import tempfile
 import os
+import shutil
+
+# Attempt to set a writable directory for deepsearch_glm models
+os.environ["DEEPSEARCH_GLM_MODEL_DIR"] = "/tmp/deepsearch_models"  # Hypothetical env var
 
 def extract_tables_from_pdf(uploaded_file):
     try:
+        # Copy pre-downloaded models to a writable directory (if needed)
+        local_model_path = "models/crf"  # Your local model directory in the repo
+        target_model_path = "/tmp/deepsearch_models/crf"
+        if os.path.exists(local_model_path) and not os.path.exists(target_model_path):
+            os.makedirs(os.path.dirname(target_model_path), exist_ok=True)
+            shutil.copytree(local_model_path, target_model_path)
+
         pipeline_options = PdfPipelineOptions()
         pipeline_options.do_ocr = False
         pipeline_options.do_table_structure = True
@@ -21,16 +32,12 @@ def extract_tables_from_pdf(uploaded_file):
             }
         )
 
-        # Create a temporary file to store the uploaded PDF
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
-            # Write the uploaded file contents to the temporary file
             tmp_file.write(uploaded_file.getvalue())
             tmp_file_path = tmp_file.name
 
         try:
-            # Convert using the temporary file path
             result = converter.convert(tmp_file_path)
-
             all_tables = {
                 "number_of_tables": len(result.document.tables),
                 "tables": []
@@ -53,7 +60,6 @@ def extract_tables_from_pdf(uploaded_file):
                     if len(numeric_columns) > 0:
                         table_info["numerical_summary"] = table_df[numeric_columns].describe().to_dict()
                     all_tables["tables"].append(table_info)
-
                 except Exception as e:
                     st.error(f"Error processing table {table_index + 1}: {str(e)}")
                     continue
@@ -61,7 +67,6 @@ def extract_tables_from_pdf(uploaded_file):
             return all_tables
 
         finally:
-            # Clean up the temporary file
             os.unlink(tmp_file_path)
 
     except Exception as e:
@@ -114,11 +119,9 @@ def main():
             
             if tables_data["number_of_tables"] > 0:
                 df = process_transactions(tables_data)
-                
                 st.write(f"Found {tables_data['number_of_tables']} tables")
                 st.dataframe(df)
                 
-                # Save to CSV
                 csv = df.to_csv(index=False)
                 st.download_button(
                     label="Download as CSV",
@@ -127,7 +130,6 @@ def main():
                     mime="text/csv"
                 )
                 
-                # Save to Excel
                 excel_buffer = BytesIO()
                 df.to_excel(excel_buffer, index=False)
                 st.download_button(
